@@ -118,6 +118,10 @@ class AlgoliaEngine(object):
         adapter = self.get_adapter(model)
         return adapter.raw_search(query, params)
 
+    def raw_search_by_index(self, adapter, query='', params={}):
+        '''Return the raw JSON.'''
+        return adapter.raw_search(query, params)
+
     # Signalling hooks.
 
     def __post_save_receiver(self, instance, **kwargs):

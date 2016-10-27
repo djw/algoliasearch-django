@@ -39,16 +39,27 @@ class AlgoliaIndex(object):
     # Instance of the index from algoliasearch client
     __index = None
 
-    def __init__(self, model, client):
+    def __init__(self, models, client):
         '''Initializes the index.'''
-        self.model = model
+        if type(models) == list:
+            self.models = models
+        else:
+            self.models = [models]
         self.__client = client
         self.__set_index(client)
 
         try:
-            all_fields = [f.name for f in model._meta.get_fields()]
+            all_fields = [
+                [f.name for f in model._meta.get_fields()]
+                for model in self.models]
         except AttributeError:  # Django 1.7
-            all_fields = model._meta.get_all_field_names()
+            all_fields = [
+                model._meta.get_all_field_names() for model in self.models]
+
+        all_fields = reduce(
+            lambda head, segment: head + segment,
+            all_fields)
+        all_fields = list(set(all_fields))
 
         # Avoid error when there is only one field to index
         if isinstance(self.fields, str):
@@ -56,9 +67,18 @@ class AlgoliaIndex(object):
 
         # Check fields
         for field in self.fields:
-            if not (hasattr(model, field) or (field in all_fields)):
+            if field in all_fields:
+                continue
+            bad_models = []
+            for model in self.models:
+                if not hasattr(model, field):
+                    bad_models.append(model)
+
+            if bad_models:
                 raise AlgoliaIndexError(
-                    '{} is not an attribute of {}.'.format(field, model))
+                    '{} is not an attribute of models: {}.'.format(
+                        field, ", ".join(
+                            [model.__name__ for model in bad_models])))
 
         # If no fields are specified, index all the fields of the model
         if not self.fields:
@@ -67,49 +87,57 @@ class AlgoliaIndex(object):
 
         # Check custom_objectID
         if self.custom_objectID:
-            if not (hasattr(model, self.custom_objectID) or
-                    (self.custom_objectID in all_fields)):
-                raise AlgoliaIndexError('{} is not an attribute of {}.'.format(
-                    self.custom_objectID, model))
+            for model in self.models:
+                if not (hasattr(model, self.custom_objectID) or
+                        (self.custom_objectID in all_fields)):
+                    raise AlgoliaIndexError(
+                        '{} is not an attribute of {}.'.format(
+                            self.custom_objectID, model))
 
         # Check tags
         if self.tags:
-            if not (hasattr(model, self.tags) or (self.tags in all_fields)):
-                raise AlgoliaIndexError('{} is not an attribute of {}'.format(
-                    self.tags, model))
+            for model in self.models:
+                if not (hasattr(model, self.tags) or (self.tags in all_fields)):
+                    raise AlgoliaIndexError(
+                        '{} is not an attribute of {}'.format(self.tags, model))
 
         # Check geo_field + get the callable
         if self.geo_field:
-            if hasattr(model, self.geo_field):
-                attr = getattr(model, self.geo_field)
-                if callable(attr):
-                    self.geo_field = attr
+            for model in self.models:
+                if hasattr(model, self.geo_field):
+                    attr = getattr(model, self.geo_field)
+                    if callable(attr):
+                        self.geo_field = attr
+                    else:
+                        raise AlgoliaIndexError(
+                            '{} should be a callable.'.format(self.geo_field))
                 else:
-                    raise AlgoliaIndexError('{} should be a callable.'.format(
-                        self.geo_field))
-            else:
-                raise AlgoliaIndexError('{} is not an attribute of {}.'.format(
-                    self.geo_field, model))
+                    raise AlgoliaIndexError(
+                        '{} is not an attribute of {}.'.format(
+                            self.geo_field, model))
 
         # Check should_index + get the callable
         if self.should_index:
-            if hasattr(model, self.should_index):
-                attr = getattr(model, self.should_index)
-                if callable(attr):
-                    self.should_index = attr
+            for model in self.models:
+                if hasattr(model, self.should_index):
+                    attr = getattr(model, self.should_index)
+                    if callable(attr):
+                        self.should_index = attr
+                    else:
+                        raise AlgoliaIndexError(
+                            '{} should be a callable.'.format(
+                                self.should_index))
                 else:
-                    raise AlgoliaIndexError('{} should be a callable.'.format(
-                        self.should_index))
-            else:
-                raise AlgoliaIndexError('{} is not an attribute of {}.'.format(
-                    self.should_index, model))
+                    raise AlgoliaIndexError(
+                        '{} is not an attribute of {}.'.format(
+                            self.should_index, model))
 
     def __set_index(self, client):
         '''Get an instance of Algolia Index'''
         params = getattr(settings, 'ALGOLIA', None)
 
         if not self.index_name:
-            self.index_name = self.model.__name__
+            self.index_name = type(self).__name__
 
         if params:
             if 'INDEX_PREFIX' in params:
@@ -119,7 +147,8 @@ class AlgoliaIndex(object):
         else:
             # @Deprecated: 1.1.0
             if hasattr(settings, 'ALGOLIA_INDEX_PREFIX'):
-                self.index_name = settings.ALGOLIA_INDEX_PREFIX + '_' + self.index_name
+                self.index_name = (
+                    settings.ALGOLIA_INDEX_PREFIX + '_' + self.index_name)
             if hasattr(settings, 'ALGOLIA_INDEX_SUFFIX'):
                 self.index_name += '_' + settings.ALGOLIA_INDEX_SUFFIX
 
