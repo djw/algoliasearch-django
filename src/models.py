@@ -166,9 +166,8 @@ class AlgoliaIndex(object):
     def _build_object(self, instance):
         '''Build the JSON object.'''
         tmp = {
-            'objectID': self.__get_objectID(instance),
-            'objectModel': model_name(type(instance))
-        }
+            'objectID': "{}.{}".format(
+                model_name(instance), self.__get_objectID(instance))}
 
         if isinstance(self.fields, dict):
             for key, value in self.fields.items():
@@ -228,7 +227,12 @@ class AlgoliaIndex(object):
 
     def raw_search(self, query='', params={}):
         '''Return the raw JSON.'''
-        return self.__index.search(query, params)
+        results = self.__index.search(query, params)
+        for hit in results.get("hits", []):
+            model_str, object_id = hit["objectID"].rsplit(".", 1)
+            hit["objectID"] = object_id
+            hit["objectModel"] = model_str
+        return results
 
     def set_settings(self):
         '''Apply the settings to the index.'''

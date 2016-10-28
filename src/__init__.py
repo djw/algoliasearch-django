@@ -5,7 +5,7 @@ http://www.algolia.com
 
 from __future__ import unicode_literals
 
-from django.contrib.algoliasearch.models import AlgoliaIndex
+from django.contrib.algoliasearch.models import AlgoliaIndex, model_name
 from django.contrib.algoliasearch.registration import AlgoliaEngine
 from django.contrib.algoliasearch.registration import algolia_engine
 
