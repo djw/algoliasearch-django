@@ -5,7 +5,7 @@ import logging
 from django.conf import settings
 from django.db.models.signals import post_save, pre_delete
 
-from django.contrib.algoliasearch.models import AlgoliaIndex
+from django.contrib.algoliasearch.models import AlgoliaIndex, model_name
 from django.contrib.algoliasearch.version import VERSION
 
 from algoliasearch import algoliasearch
@@ -47,7 +47,7 @@ class AlgoliaEngine(object):
         '''Checks whether the given models is registered with Algolia engine.'''
         return model in self.__registered_models
 
-    def register(self, model, index_cls=AlgoliaIndex):
+    def register(self, model, adapter_cls=None):
         '''
         Registers the given model with Algolia engine.
 
@@ -59,14 +59,26 @@ class AlgoliaEngine(object):
             raise RegistrationError(
                 '{} is already registered with Algolia engine'.format(model))
         # Perform the registration.
-        index_obj = index_cls(model, self.client)
+        instance = None
+        for existing_adapter in self.__registered_models.values():
+            if adapter_cls and (type(existing_adapter) == adapter_cls):
+                instance = existing_adapter
+                break
+
+        adapter_cls = adapter_cls or AlgoliaIndex
+        if instance:
+            index_obj = instance
+            index_obj.add_models(model)
+        else:
+            index_obj = adapter_cls(model, self.client)
+
         self.__registered_models[model] = index_obj
 
         if self.auto_indexing:
             # Connect to the signalling framework.
             post_save.connect(self.__post_save_receiver, model)
             pre_delete.connect(self.__pre_delete_receiver, model)
-            logger.info('REGISTER %s', model)
+            logger.info('REGISTER %s', model_name(model))
 
     def unregister(self, model):
         '''
@@ -93,6 +105,12 @@ class AlgoliaEngine(object):
         engine.
         '''
         return list(self.__registered_models.keys())
+
+    def get_registered_adapters(self):
+        '''
+        Returns a sequence of registered adapters
+        '''
+        return list(set(self.__registered_models.values()))
 
     def get_adapter(self, model):
         '''Returns the adapter associated with the given model.'''

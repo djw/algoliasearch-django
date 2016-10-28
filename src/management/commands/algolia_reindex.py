@@ -7,17 +7,20 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--batchsize', nargs='?', default=1000, type=int)
-        parser.add_argument('--model', nargs='+', type=str)
+        parser.add_argument('--adapter', nargs='+', type=str)
 
     def handle(self, *args, **options):
         '''Run the management command.'''
         self.stdout.write('The following models were reindexed:')
-        for model in algoliasearch.get_registered_model():
-            adapter = algoliasearch.get_adapter(model)
-            if options.get('model', None) and not (model.__name__ in
-                                                   options['model']):
+        print "adapters: %s" % algoliasearch.get_registered_adapters()
+        for adapter in algoliasearch.get_registered_adapters():
+            print "adapter: %s" % adapter
+            if options.get('adapter', None) and not (
+                    adapter.__name__ in options['adapter']):
+
                 continue
 
             counts = adapter.reindex_all(
                 batch_size=options.get('batchsize', 1000))
-            self.stdout.write('\t* {} --> {}'.format(model.__name__, counts))
+            self.stdout.write('\t* {} --> {}'.format(
+                type(adapter).__name__, counts))

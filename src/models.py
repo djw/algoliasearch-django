@@ -1,8 +1,15 @@
 from __future__ import unicode_literals
 from django.conf import settings
 import logging
+from inspect import isclass
 
 logger = logging.getLogger(__name__)
+
+
+def model_name(class_or_instance):
+    model = class_or_instance if isclass(class_or_instance) else type(
+        class_or_instance)
+    return "{}.{}".format(model.__module__, model.__name__)
 
 
 class AlgoliaIndexError(Exception):
@@ -41,12 +48,18 @@ class AlgoliaIndex(object):
 
     def __init__(self, models, client):
         '''Initializes the index.'''
-        if type(models) == list:
-            self.models = models
-        else:
-            self.models = [models]
         self.__client = client
         self.__set_index(client)
+        self.models = []
+        self.add_models(models)
+
+    def add_models(self, models):
+        if type(models) == list:
+            self.models.extend(models)
+        else:
+            self.models.append(models)
+
+        self.models = list(set(self.models))
 
         try:
             all_fields = [
@@ -64,21 +77,6 @@ class AlgoliaIndex(object):
         # Avoid error when there is only one field to index
         if isinstance(self.fields, str):
             self.fields = (self.fields, )
-
-        # Check fields
-        for field in self.fields:
-            if field in all_fields:
-                continue
-            bad_models = []
-            for model in self.models:
-                if not hasattr(model, field):
-                    bad_models.append(model)
-
-            if bad_models:
-                raise AlgoliaIndexError(
-                    '{} is not an attribute of models: {}.'.format(
-                        field, ", ".join(
-                            [model.__name__ for model in bad_models])))
 
         # If no fields are specified, index all the fields of the model
         if not self.fields:
@@ -167,19 +165,29 @@ class AlgoliaIndex(object):
 
     def _build_object(self, instance):
         '''Build the JSON object.'''
-        tmp = {'objectID': self.__get_objectID(instance)}
+        tmp = {
+            'objectID': self.__get_objectID(instance),
+            'objectModel': model_name(type(instance))
+        }
+
         if isinstance(self.fields, dict):
             for key, value in self.fields.items():
-                attr = getattr(instance, key)
-                if callable(attr):
-                    attr = attr()
-                tmp[value] = attr
+                if hasattr(instance, field):
+                    attr = getattr(instance, key, None)
+                    if callable(attr):
+                        attr = attr()
+                    tmp[value] = attr
+                else:
+                    tmp[value] = ""
         else:
             for field in self.fields:
-                attr = getattr(instance, field)
-                if callable(attr):
-                    attr = attr()
-                tmp[field] = attr
+                if hasattr(instance, field):
+                    attr = getattr(instance, field, None)
+                    if callable(attr):
+                        attr = attr()
+                    tmp[field] = attr
+                else:
+                    tmp[field] = ""
 
         if self.geo_field:
             loc = self.geo_field(instance)
@@ -195,7 +203,7 @@ class AlgoliaIndex(object):
                 attr = list(attr)
             tmp['_tags'] = attr
 
-        logger.debug('BUILD %s FROM %s', tmp['objectID'], self.model)
+        logger.debug('BUILD %s FROM %s', tmp['objectID'], model_name(instance))
         return tmp
 
     def update_obj_index(self, instance):
@@ -210,13 +218,13 @@ class AlgoliaIndex(object):
 
         obj = self._build_object(instance)
         self.__index.save_object(obj)
-        logger.debug('UPDATE %s FROM %s', obj['objectID'], self.model)
+        logger.debug('UPDATE %s FROM %s', obj['objectID'], model_name(instance))
 
     def delete_obj_index(self, instance):
         '''Delete the object.'''
         objectID = self.__get_objectID(instance)
         self.__index.delete_object(objectID)
-        logger.debug('DELETE %s FROM %s', objectID, self.model)
+        logger.debug('DELETE %s FROM %s', objectID, model_name(instance))
 
     def raw_search(self, query='', params={}):
         '''Return the raw JSON.'''
@@ -245,12 +253,20 @@ class AlgoliaIndex(object):
         counts = 0
         batch = []
 
-        if hasattr(self, 'get_queryset'):
-            qs = self.get_queryset()
-        else:
-            qs = self.model.objects.all()
+        logger.info(
+            "Indexing models: %s", ", ".join([
+                model_name(model) for model in self.models]))
 
-        for instance in qs:
+        if hasattr(self, 'get_queryset'):
+            instances = [instance for instance in self.get_queryset()]
+        elif hasattr(self, 'get_instances'):
+            instances = self.get_instances()
+        else:
+            instances = []
+            for model in self.models:
+                instances.extend(model.objects.all())
+
+        for instance in instances:
             if self.should_index:
                 if not self.should_index(instance):
                     continue  # should not index
