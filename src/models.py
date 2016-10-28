@@ -155,19 +155,28 @@ class AlgoliaIndex(object):
 
     def __get_objectID(self, instance):
         '''Return the objectID of an instance.'''
+        pk = None
         if self.custom_objectID:
             attr = getattr(instance, self.custom_objectID)
             if callable(attr):
                 attr = attr()
-            return attr
+            pk = attr
         else:
-            return instance.pk
+            pk = instance.pk
+
+        if len(self.models) > 1:
+            objectID = "{}.{}".format(model_name(instance), pk)
+        else:
+            objectID = pk
+
+        return objectID
 
     def _build_object(self, instance):
         '''Build the JSON object.'''
-        tmp = {
-            'objectID': "{}.{}".format(
-                model_name(instance), self.__get_objectID(instance))}
+        tmp = {'objectID': self.__get_objectID(instance)}
+
+        if len(self.models) > 1:
+            tmp["_objectModel"] = model_name(instance)
 
         if isinstance(self.fields, dict):
             for key, value in self.fields.items():
@@ -228,16 +237,31 @@ class AlgoliaIndex(object):
     def raw_search(self, query='', params={}):
         '''Return the raw JSON.'''
         results = self.__index.search(query, params)
-        for hit in results.get("hits", []):
-            model_str, object_id = hit["objectID"].rsplit(".", 1)
-            hit["objectID"] = object_id
-            hit["objectModel"] = model_str
+        if len(self.models) > 1:
+            for hit in results.get("hits", []):
+                model_str = hit["_objectModel"]
+                object_id = hit["objectID"].replace(model_str + ".", "")
+                hit["objectID"] = object_id
         return results
+
+    def _prepare_settings(self):
+        facets_setting = "attributesForFaceting"
+        if self.settings:
+            if len(self.models) > 1:
+                if facets_setting not in self.settings:
+                    facets = []
+                    self.settings[facets_setting] = facets
+                else:
+                    facets = self.settings[facets_setting]
+            if "_objectModel" not in facets:
+                facets.append("_objectModel")
+
+        return self.settings
 
     def set_settings(self):
         '''Apply the settings to the index.'''
         if self.settings:
-            self.__index.set_settings(self.settings)
+            self.__index.set_settings(self._prepare_settings())
             logger.debug('APPLY SETTINGS ON %s', self.index_name)
 
     def clear_index(self):
@@ -248,7 +272,7 @@ class AlgoliaIndex(object):
     def reindex_all(self, batch_size=1000):
         '''Reindex all records.'''
         if self.settings:
-            self.__tmp_index.set_settings(self.settings)
+            self.__tmp_index.set_settings(self._prepare_settings())
             logger.debug('APPLY SETTINGS ON %s_tmp', self.index_name)
         self.__tmp_index.clear_index()
         logger.debug('CLEAR INDEX %s_tmp', self.index_name)
