@@ -53,6 +53,10 @@ class AlgoliaIndex(object):
         self.models = []
         self.add_models(models)
 
+    def _should_index(self, instance):
+        should_index = getattr(instance, self.should_index)
+        return should_index()
+
     def add_models(self, models):
         if type(models) == list:
             self.models.extend(models)
@@ -114,14 +118,12 @@ class AlgoliaIndex(object):
                         '{} is not an attribute of {}.'.format(
                             self.geo_field, model))
 
-        # Check should_index + get the callable
+        # Check should_index
         if self.should_index:
             for model in self.models:
                 if hasattr(model, self.should_index):
                     attr = getattr(model, self.should_index)
-                    if callable(attr):
-                        self.should_index = attr
-                    else:
+                    if not callable(attr):
                         raise AlgoliaIndexError(
                             '{} should be a callable.'.format(
                                 self.should_index))
@@ -217,7 +219,7 @@ class AlgoliaIndex(object):
     def update_obj_index(self, instance):
         '''Update the object.'''
         if self.should_index:
-            if not self.should_index(instance):
+            if not self._should_index(instance):
                 # Should not index, but since we don't now the state of the
                 # instance, we need to send a DELETE request to ensure that if
                 # the instance was previously indexed, it will be removed.
@@ -296,7 +298,7 @@ class AlgoliaIndex(object):
 
         for instance in instances:
             if self.should_index:
-                if not self.should_index(instance):
+                if not self._should_index(instance):
                     continue  # should not index
 
             batch.append(self._build_object(instance))
