@@ -12,9 +12,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         '''Run the management command.'''
         self.stdout.write('The following models were reindexed:')
-        print "adapters: %s" % algoliasearch.get_registered_adapters()
         for adapter in algoliasearch.get_registered_adapters():
-            print "adapter: %s" % adapter
             if options.get('adapter', None) and not (
                     adapter.__name__ in options['adapter']):
 
