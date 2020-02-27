@@ -1,4 +1,7 @@
 from __future__ import unicode_literals
+
+from functools import reduce
+
 from django.conf import settings
 import logging
 from inspect import isclass
