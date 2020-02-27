@@ -1,5 +1,5 @@
 django>=1.7
-algoliasearch
+algoliasearch==1.20.0
 tox
 wheel
 pypandoc
